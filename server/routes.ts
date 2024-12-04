@@ -51,6 +51,31 @@ export function registerRoutes(app: Express) {
         return data.items || [];
       };
 
+      // Helpter function to fetch the website source for images
+      const fetchSourceLink = async (title: string): Promise<string | null> => {
+        try {
+          const params = new URLSearchParams({
+            key: process.env.GOOGLE_API_KEY!,
+            cx: process.env.SEARCH_ENGINE_ID!,
+            q: title,
+            num: "1", // Only fetch the top result
+          });
+
+          const response = await fetch(
+            `https://www.googleapis.com/customsearch/v1?${params}`
+          );
+
+          if (!response.ok) {
+            return null;
+          }
+
+          const data = (await response.json()) as GoogleSearchResponse;
+          return data.items?.[0]?.link || null; // Return the top result's link
+        } catch (error) {
+          return null;
+        }
+      };
+
       const paramsBase = new URLSearchParams({
         key: process.env.GOOGLE_API_KEY!,
         cx: process.env.SEARCH_ENGINE_ID!,
@@ -64,13 +89,14 @@ export function registerRoutes(app: Express) {
       if (searchType === "images") {
         paramsBase.append("searchType", "image");
         results = await fetchResults(paramsBase);
+
       } else if (searchType === "videos") {
         paramsBase.append("fileType", "mp4,avi,mov,wmv");
         paramsBase.append("hq", "videos");
         paramsBase.append("type", "video");
         results = await fetchResults(paramsBase);
+
       } else if (searchType === "both") {
-        // Fetch images and videos separately
         const imageParams = new URLSearchParams(paramsBase);
         imageParams.append("searchType", "image");
 
@@ -96,33 +122,44 @@ export function registerRoutes(app: Express) {
       }
 
       // Enhance results with thumbnails and metadata
-      const enhancedItems = results.map((item) => {
-        const videoObject = item.pagemap?.videoobject?.[0];
-        const cseImage = item.pagemap?.cse_image?.[0]?.src;
-        const cseThumbnail = item.pagemap?.cse_thumbnail?.[0]?.src;
-        const imageThumbnail = item.image?.thumbnailLink;
+      const enhancedItems = await Promise.all(
+        results.map(async (item) => {
+          const videoObject = item.pagemap?.videoobject?.[0];
+          const cseImage = item.pagemap?.cse_image?.[0]?.src;
+          const cseThumbnail = item.pagemap?.cse_thumbnail?.[0]?.src;
+          const imageThumbnail = item.image?.thumbnailLink;
 
-        const youtubeId = item.link.includes("youtube.com")
-          ? item.link.split("v=")[1]?.split("&")[0]
-          : null;
+          const youtubeId = item.link.includes("youtube.com")
+            ? item.link.split("v=")[1]?.split("&")[0]
+            : null;
 
-        const isVideo = Boolean(videoObject);
-        const thumbnailUrl = isVideo
-          ? videoObject?.thumbnailurl ||
-            cseThumbnail ||
-            cseImage ||
-            (youtubeId ? `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg` : null)
-          : cseImage || cseThumbnail || imageThumbnail || "/placeholder.png";
+          const isVideo = Boolean(videoObject);
 
-        return {
-          title: item.title,
-          link: item.link, // Original link (source)
-          thumbnailUrl,
-          sourceLink: item.link, // Link to the source webpage
-          downloadLink: isVideo ? item.link : cseImage || cseThumbnail || item.link, // Direct download URL
-          isVideo,
-        };
-      });
+          const sourceLink = isVideo
+            ? item.link // For videos, this is the hosting page
+            : (await fetchSourceLink(item.title)) || item.link; // For images, try fetchSourceLink, fall back to item.link
+
+          const downloadLink = isVideo
+            ? item.link // For videos, this is the download link
+            : cseImage || cseThumbnail || item.link; // For images, use the direct image URL
+
+          const thumbnailUrl = isVideo
+            ? videoObject?.thumbnailurl ||
+              cseThumbnail ||
+              cseImage ||
+              (youtubeId ? `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg` : null)
+            : cseImage || cseThumbnail || imageThumbnail || "/placeholder.png";
+
+          return {
+            title: item.title,
+            link: item.link,
+            thumbnailUrl,
+            sourceLink,
+            downloadLink,
+            isVideo,
+          };
+        })
+      );
 
       res.json({
         items: enhancedItems,
