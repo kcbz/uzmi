@@ -11,6 +11,7 @@ interface GoogleSearchResponse {
     title: string;
     image?: {
       thumbnailLink?: string;
+      contextLink?: string;
     };
     pagemap?: {
       videoobject?: Array<{ thumbnailurl?: string }>;
@@ -35,9 +36,63 @@ export function registerRoutes(app: Express) {
       if (!["images", "videos", "both"].includes(searchType)) {
         return res.status(400).json({ error: "Invalid searchType" });
       }
-      
+
       // Helper function to fetch results with specific params
-      const fetchResults = async (params: URLSearchParams) => {
+      const fetchResults = async (
+        params: URLSearchParams,
+        excludeDomains: string[] = [],
+        validateImages = false
+      ) => {
+        // Helper function to validate if a URL is an image
+        const isImageUrl = async (url: string): Promise<boolean> => {
+          try {
+            const response = await fetch(url, { method: "HEAD" });
+            const contentType = response.headers.get("content-type");
+            return contentType?.startsWith("image/") || false;
+          } catch (error) {
+            console.error("Error verifying image URL:", error);
+            return false;
+          }
+        };
+
+        if (excludeDomains.length > 0) {
+          const negatedDomains = excludeDomains.map((domain) => `-site:${domain}`).join(" ");
+          const currentQuery = params.get("q") || "";
+          params.set("q", `${currentQuery} ${negatedDomains}`);
+        }
+
+        let allResults: GoogleSearchResponse["items"] = [];
+        let currentStart = parseInt(params.get("start") || "1", 10);
+
+        while (allResults.length < count) {
+          const response = await fetch(
+            `https://www.googleapis.com/customsearch/v1?${params}`
+          );
+
+          if (!response.ok) {
+            const errorData = (await response.json()) as GoogleApiError;
+            throw new Error(errorData.error?.message || "Failed to fetch from Google API");
+          }
+      
+          const data = (await response.json()) as GoogleSearchResponse;
+          const items = data.items || [];
+      
+          if (items.length === 0) {
+            break; // Stop fetching if no more results are available
+          }
+      
+          // Validate items and filter out invalid images
+          const validatedItems = await Promise.all(
+            items.map(async (item) => {
+              if (item.link && await isImageUrl(item.link)) {
+                return item; // Include if valid image link
+              }
+              return null; // Exclude otherwise
+            })
+          );
+
+          allResults.push(...validatedItems.filter((item) => item !== null));
+
         const response = await fetch(
           `https://www.googleapis.com/customsearch/v1?${params}`
         );
@@ -49,31 +104,6 @@ export function registerRoutes(app: Express) {
 
         const data = (await response.json()) as GoogleSearchResponse;
         return data.items || [];
-      };
-
-      // Helpter function to fetch the website source for images
-      const fetchSourceLink = async (title: string): Promise<string | null> => {
-        try {
-          const params = new URLSearchParams({
-            key: process.env.GOOGLE_API_KEY!,
-            cx: process.env.SEARCH_ENGINE_ID!,
-            q: title,
-            num: "1", // Only fetch the top result
-          });
-
-          const response = await fetch(
-            `https://www.googleapis.com/customsearch/v1?${params}`
-          );
-
-          if (!response.ok) {
-            return null;
-          }
-
-          const data = (await response.json()) as GoogleSearchResponse;
-          return data.items?.[0]?.link || null; // Return the top result's link
-        } catch (error) {
-          return null;
-        }
       };
 
       const paramsBase = new URLSearchParams({
@@ -88,13 +118,15 @@ export function registerRoutes(app: Express) {
 
       if (searchType === "images") {
         paramsBase.append("searchType", "image");
-        results = await fetchResults(paramsBase);
+        results = await fetchResults(paramsBase, ["youtube.com", "i.ytimg.com"]);
+        console.log("results:", results);
 
       } else if (searchType === "videos") {
         paramsBase.append("fileType", "mp4,avi,mov,wmv");
         paramsBase.append("hq", "videos");
         paramsBase.append("type", "video");
         results = await fetchResults(paramsBase);
+        console.log("results:", results);
 
       } else if (searchType === "both") {
         const imageParams = new URLSearchParams(paramsBase);
@@ -106,7 +138,7 @@ export function registerRoutes(app: Express) {
         videoParams.append("type", "video");
 
         const [imageResults, videoResults] = await Promise.all([
-          fetchResults(imageParams),
+          fetchResults(imageParams, ["youtube.com", "i.ytimg.com"]),
           fetchResults(videoParams),
         ]);
 
@@ -124,39 +156,44 @@ export function registerRoutes(app: Express) {
       // Enhance results with thumbnails and metadata
       const enhancedItems = await Promise.all(
         results.map(async (item) => {
-          const videoObject = item.pagemap?.videoobject?.[0];
-          const cseImage = item.pagemap?.cse_image?.[0]?.src;
-          const cseThumbnail = item.pagemap?.cse_thumbnail?.[0]?.src;
-          const imageThumbnail = item.image?.thumbnailLink;
 
-          const youtubeId = item.link.includes("youtube.com")
-            ? item.link.split("v=")[1]?.split("&")[0]
-            : null;
+          const isImageUrl = async (url: string): Promise<boolean> => {
+            try {
+              const response = await fetch(url, { method: "HEAD" });
+              const contentType = response.headers.get("content-type");
+              return contentType?.startsWith("image/") || false;
+            } catch (error) {
+              console.error("Error verifying image URL:", error);
+              return false;
+            }
+          };
 
-          const isVideo = Boolean(videoObject);
+          const isImage = Boolean(isImageUrl);
 
-          const sourceLink = isVideo
-            ? item.link // For videos, this is the hosting page
-            : (await fetchSourceLink(item.title)) || item.link; // For images, try fetchSourceLink, fall back to item.link
+          const thumbnailUrl = isImage
+            ? item.link ||
+              item.image?.thumbnailLink ||
+              "/placeholder.png"
+            : item.pagemap?.videoobject?.[0]?.thumbnailurl ||
+              item.pagemap?.cse_thumbnail?.[0]?.src ||
+              item.pagemap?.cse_image?.[0]?.src ||
+              "/placeholder.png";
 
-          const downloadLink = isVideo
-            ? item.link // For videos, this is the download link
-            : cseImage || cseThumbnail || item.link; // For images, use the direct image URL
+          const sourceLink = isImage
+            ? item.image?.contextLink || item.link
+            : item.link;
 
-          const thumbnailUrl = isVideo
-            ? videoObject?.thumbnailurl ||
-              cseThumbnail ||
-              cseImage ||
-              (youtubeId ? `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg` : null)
-            : cseImage || cseThumbnail || imageThumbnail || "/placeholder.png";
+          const downloadLink = isImage
+            ? item.link
+            : item.link;
 
           return {
             title: item.title,
             link: item.link,
             thumbnailUrl,
+            isImage,
             sourceLink,
             downloadLink,
-            isVideo,
           };
         })
       );

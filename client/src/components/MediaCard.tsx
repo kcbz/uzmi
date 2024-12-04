@@ -24,7 +24,7 @@ export default function MediaCard({
     try {
       toast({
         title: "Download started",
-        description: `Starting ${result.isVideo ? "video" : "image"} download...`,
+        description: `Starting ${result.isImage ? "image" : "video"} download...`,
       });
 
       const response = await fetch(
@@ -58,7 +58,7 @@ export default function MediaCard({
 
       toast({
         title: "Download complete",
-        description: `${result.isVideo ? "Video" : "Image"} downloaded successfully`,
+        description: `${result.isImage ? "Image" : "Video"} downloaded successfully`,
       });
     } catch (err) {
       console.error("Download error:", err);

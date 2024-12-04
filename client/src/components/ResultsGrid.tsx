@@ -8,7 +8,7 @@ export interface Result {
   thumbnailUrl: string;
   sourceLink: string;
   downloadLink: string;
-  isVideo: boolean;
+  isImage: boolean;
   pagemap?: {
     videoobject?: Array<{
       thumbnailurl?: string;
