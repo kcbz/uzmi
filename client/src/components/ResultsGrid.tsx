@@ -2,16 +2,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import MediaCard from "./MediaCard";
 import { Skeleton } from "@/components/ui/skeleton";
 
-interface Result {
+export interface Result {
   title: string;
   link: string;
   thumbnailUrl: string;
   sourceLink: string;
   downloadLink: string;
   isVideo: boolean;
-  image?: {
-    thumbnailLink?: string;
-  };
   pagemap?: {
     videoobject?: Array<{
       thumbnailurl?: string;

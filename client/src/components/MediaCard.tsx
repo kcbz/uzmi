@@ -4,16 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Result } from './ResultsGrid';
 
 interface MediaCardProps {
-  result: {
-    title: string;
-    link: string;
-    thumbnailUrl: string;
-    pagemap?: {
-      videoobject?: Array<{ duration?: string }>;
-    };
-  };
+  result: Result;
   isSelected: boolean;
   onToggleSelect: () => void;
 }
@@ -25,13 +19,12 @@ export default function MediaCard({
 }: MediaCardProps) {
   const { toast } = useToast();
   const [imageLoaded, setImageLoaded] = useState(false);
-  const isVideo = Boolean(result.pagemap?.videoobject);
 
   const handleDownload = async () => {
     try {
       toast({
         title: "Download started",
-        description: `Starting ${isVideo ? "video" : "image"} download...`,
+        description: `Starting ${result.isVideo ? "video" : "image"} download...`,
       });
 
       const response = await fetch(
@@ -65,7 +58,7 @@ export default function MediaCard({
 
       toast({
         title: "Download complete",
-        description: `${isVideo ? "Video" : "Image"} downloaded successfully`,
+        description: `${result.isVideo ? "Video" : "Image"} downloaded successfully`,
       });
     } catch (err) {
       console.error("Download error:", err);

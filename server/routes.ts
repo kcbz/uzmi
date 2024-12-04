@@ -115,9 +115,12 @@ export function registerRoutes(app: Express) {
           : cseImage || cseThumbnail || imageThumbnail || "/placeholder.png";
 
         return {
-          ...item,
-          isVideo,
+          title: item.title,
+          link: item.link, // Original link (source)
           thumbnailUrl,
+          sourceLink: item.link, // Link to the source webpage
+          downloadLink: isVideo ? item.link : cseImage || cseThumbnail || item.link, // Direct download URL
+          isVideo,
         };
       });
 
