@@ -30,9 +30,28 @@ interface GoogleApiError {
 export function registerRoutes(app: Express) {
   app.post("/api/search", async (req, res) => {
     try {
-      const { query, searchType, count, start = 1, videoSearch } = req.body;
+      const { query, searchType, count, start = 1 } = req.body;
 
-      const params = new URLSearchParams({
+      if (!["images", "videos", "both"].includes(searchType)) {
+        return res.status(400).json({ error: "Invalid searchType" });
+      }
+      
+      // Helper function to fetch results with specific params
+      const fetchResults = async (params: URLSearchParams) => {
+        const response = await fetch(
+          `https://www.googleapis.com/customsearch/v1?${params}`
+        );
+
+        if (!response.ok) {
+          const errorData = (await response.json()) as GoogleApiError;
+          throw new Error(errorData.error?.message || "Failed to fetch from Google API");
+        }
+
+        const data = (await response.json()) as GoogleSearchResponse;
+        return data.items || [];
+      };
+
+      const paramsBase = new URLSearchParams({
         key: process.env.GOOGLE_API_KEY!,
         cx: process.env.SEARCH_ENGINE_ID!,
         q: query,
@@ -40,28 +59,44 @@ export function registerRoutes(app: Express) {
         start: start.toString(),
       });
 
-      if (searchType === "image") {
-        params.append("searchType", "image");
-      }
-      if (videoSearch) {
-        params.append("fileType", "mp4,avi,mov,wmv");
-        params.append("hq", "videos");
-        params.append("type", "video");
+      let results: GoogleSearchResponse["items"] = [];
+
+      if (searchType === "images") {
+        paramsBase.append("searchType", "image");
+        results = await fetchResults(paramsBase);
+      } else if (searchType === "videos") {
+        paramsBase.append("fileType", "mp4,avi,mov,wmv");
+        paramsBase.append("hq", "videos");
+        paramsBase.append("type", "video");
+        results = await fetchResults(paramsBase);
+      } else if (searchType === "both") {
+        // Fetch images and videos separately
+        const imageParams = new URLSearchParams(paramsBase);
+        imageParams.append("searchType", "image");
+
+        const videoParams = new URLSearchParams(paramsBase);
+        videoParams.append("fileType", "mp4,avi,mov,wmv");
+        videoParams.append("hq", "videos");
+        videoParams.append("type", "video");
+
+        const [imageResults, videoResults] = await Promise.all([
+          fetchResults(imageParams),
+          fetchResults(videoParams),
+        ]);
+
+        // Interleave the results
+        const mixedResults = [];
+        let i = 0;
+        while (mixedResults.length < count && (imageResults[i] || videoResults[i])) {
+          if (imageResults[i]) mixedResults.push(imageResults[i]);
+          if (videoResults[i]) mixedResults.push(videoResults[i]);
+          i++;
+        }
+        results = mixedResults.slice(0, count);
       }
 
-      const response = await fetch(
-        `https://www.googleapis.com/customsearch/v1?${params}`
-      );
-  
-      if (!response.ok) {
-        const errorData = (await response.json()) as GoogleApiError;
-        throw new Error(errorData.error?.message || "Failed to fetch from Google API");
-      }
-
-      const data = (await response.json()) as GoogleSearchResponse;
-
-      // Enhance each result with thumbnails and metadata
-      const enhancedItems = (data.items || []).map((item) => {
+      // Enhance results with thumbnails and metadata
+      const enhancedItems = results.map((item) => {
         const videoObject = item.pagemap?.videoobject?.[0];
         const cseImage = item.pagemap?.cse_image?.[0]?.src;
         const cseThumbnail = item.pagemap?.cse_thumbnail?.[0]?.src;
@@ -86,30 +121,85 @@ export function registerRoutes(app: Express) {
         };
       });
 
-      // Filter and balance results based on searchType
-      let filteredResults = [];
-      if (searchType === "videos") {
-        filteredResults = enhancedItems.filter((item) => item.isVideo);
-      } else if (searchType === "images") {
-        filteredResults = enhancedItems.filter((item) => !item.isVideo);
-      } else if (searchType === "both") {
-        const videos = enhancedItems.filter((item) => item.isVideo);
-        const images = enhancedItems.filter((item) => !item.isVideo);
 
-        // Balance results between videos and images
-        const mixedResults = [];
-        for (let i = 0; mixedResults.length < count; i++) {
-          if (videos[i]) mixedResults.push(videos[i]);
-          if (images[i]) mixedResults.push(images[i]);
-        }
-        filteredResults = mixedResults.slice(0, count); // Ensure final count matches
-      } else {
-        filteredResults = enhancedItems.slice(0, count); // Fallback for unexpected searchType
-      }
+      // const params = new URLSearchParams({
+      //   key: process.env.GOOGLE_API_KEY!,
+      //   cx: process.env.SEARCH_ENGINE_ID!,
+      //   q: query,
+      //   num: count.toString(),
+      //   start: start.toString(),
+      // });
+
+      // if (searchType === "images") {
+      //   params.append("searchType", "image");
+      // } else if (searchType === "videos") {
+      //   params.append("fileType", "mp4,avi,mov,wmv");
+      //   params.append("hq", "videos");
+      //   params.append("type", "video");
+      // }
+
+      // const response = await fetch(
+      //   `https://www.googleapis.com/customsearch/v1?${params}`
+      // );
+  
+      // if (!response.ok) {
+      //   const errorData = (await response.json()) as GoogleApiError;
+      //   throw new Error(errorData.error?.message || "Failed to fetch from Google API");
+      // }
+
+      // const data = (await response.json()) as GoogleSearchResponse;
+
+      // // Enhance each result with thumbnails and metadata
+      // const enhancedItems = (data.items || []).map((item) => {
+      //   const videoObject = item.pagemap?.videoobject?.[0];
+      //   const cseImage = item.pagemap?.cse_image?.[0]?.src;
+      //   const cseThumbnail = item.pagemap?.cse_thumbnail?.[0]?.src;
+      //   const imageThumbnail = item.image?.thumbnailLink;
+
+      //   const youtubeId = item.link.includes("youtube.com")
+      //     ? item.link.split("v=")[1]?.split("&")[0]
+      //     : null;
+
+      //   const isVideo = Boolean(videoObject);
+      //   const thumbnailUrl = isVideo
+      //     ? videoObject?.thumbnailurl ||
+      //       cseThumbnail ||
+      //       cseImage ||
+      //       (youtubeId ? `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg` : null)
+      //     : cseImage || cseThumbnail || imageThumbnail || "/placeholder.png";
+
+      //   return {
+      //     ...item,
+      //     isVideo,
+      //     thumbnailUrl,
+      //   };
+      // });
+
+      // Filter and balance results based on searchType
+      // let filteredResults: Array<typeof enhancedItems[0]> = [];
+      // if (searchType === "videos") {
+      //   filteredResults = enhancedItems.filter((item) => item.isVideo);
+      // } else if (searchType === "images") {
+      //   filteredResults = enhancedItems.filter((item) => !item.isVideo);
+      // } else if (searchType === "both") {
+      //   const videos = enhancedItems.filter((item) => item.isVideo);
+      //   const images = enhancedItems.filter((item) => !item.isVideo);
+
+      //   const mixedResults = [];
+      //   let i = 0;
+      //   while (mixedResults.length < count && (videos[i] || images[i])) {
+      //     if (videos[i]) mixedResults.push(videos[i]);
+      //     if (images[i]) mixedResults.push(images[i]);
+      //     i++;
+      //   }
+      //   filteredResults = mixedResults.slice(0, count);
+      // } else {
+      //   res.status(400).json({ error: "Unexpected searchType error" });
+      //   return;
+      // }
 
       res.json({
-        ...data,
-        items: filteredResults,
+        items: enhancedItems,
       });
     } catch (error) {
       console.error("Search error:", error);

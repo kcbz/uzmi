@@ -5,8 +5,6 @@ export async function searchMedia(
   type: MediaType,
   count: number
 ) {
-  const searchType = type === "images" ? "image" : undefined;
-
   const maxResultsPerCall = 10;
   const numberOfCalls = Math.ceil(count / maxResultsPerCall);
   const results = [];
@@ -22,10 +20,9 @@ export async function searchMedia(
         },
         body: JSON.stringify({
           query,
-          searchType,
+          searchType: type,
           count: Math.min(maxResultsPerCall, count - i * maxResultsPerCall),
           start,
-          videoSearch: type === "videos" || type === "both",
         }),
       });
 
