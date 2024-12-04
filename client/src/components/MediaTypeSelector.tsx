@@ -12,7 +12,11 @@ export default function MediaTypeSelector({ value, onChange }: MediaTypeSelector
     <ToggleGroup
       type="single"
       value={value}
-      onValueChange={(val) => onChange(val as MediaType)}
+      onValueChange={(val) => {
+        if (val) {
+          onChange(val as MediaType);
+        }
+      }}
       className="justify-center"
     >
       <ToggleGroupItem value="images" aria-label="Images">

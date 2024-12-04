@@ -87,18 +87,20 @@ export default function MediaCard({
             onCheckedChange={onToggleSelect}
           />
         </div>
-        <img
-          src={result.thumbnailUrl}
-          alt={result.title}
-          className={`w-full h-48 object-cover transition-opacity duration-200 ${
-            imageLoaded ? 'opacity-100' : 'opacity-0'
-          }`}
-          onLoad={() => setImageLoaded(true)}
-          onError={(e) => {
-            e.currentTarget.src = '/placeholder.png';
-            setImageLoaded(true);
-          }}
-        />
+        <a href={result.link} target="_blank" rel="noopener noreferrer">
+          <img
+            src={result.thumbnailUrl}
+            alt={result.title}
+            className={`w-full h-48 object-cover transition-opacity duration-200 ${
+              imageLoaded ? 'opacity-100' : 'opacity-0'
+            }`}
+            onLoad={() => setImageLoaded(true)}
+            onError={(e) => {
+              e.currentTarget.src = '/placeholder.png';
+              setImageLoaded(true);
+            }}
+          />
+        </a>
         {result.pagemap?.videoobject && (
           <div className="absolute bottom-2 right-2 bg-black/75 text-white px-2 py-1 rounded text-xs">
             {result.pagemap.videoobject[0].duration || 'Video'}

@@ -43,7 +43,6 @@ export function registerRoutes(app: Express) {
       if (searchType === "image") {
         params.append("searchType", "image");
       }
-
       if (videoSearch) {
         params.append("fileType", "mp4,avi,mov,wmv");
         params.append("hq", "videos");
@@ -53,7 +52,7 @@ export function registerRoutes(app: Express) {
       const response = await fetch(
         `https://www.googleapis.com/customsearch/v1?${params}`
       );
-
+  
       if (!response.ok) {
         const errorData = (await response.json()) as GoogleApiError;
         throw new Error(errorData.error?.message || "Failed to fetch from Google API");
@@ -61,7 +60,7 @@ export function registerRoutes(app: Express) {
 
       const data = (await response.json()) as GoogleSearchResponse;
 
-      // Enhance each result with consolidated thumbnail URLs
+      // Enhance each result with thumbnails and metadata
       const enhancedItems = (data.items || []).map((item) => {
         const videoObject = item.pagemap?.videoobject?.[0];
         const cseImage = item.pagemap?.cse_image?.[0]?.src;
@@ -82,13 +81,35 @@ export function registerRoutes(app: Express) {
 
         return {
           ...item,
+          isVideo,
           thumbnailUrl,
         };
       });
 
+      // Filter and balance results based on searchType
+      let filteredResults = [];
+      if (searchType === "videos") {
+        filteredResults = enhancedItems.filter((item) => item.isVideo);
+      } else if (searchType === "images") {
+        filteredResults = enhancedItems.filter((item) => !item.isVideo);
+      } else if (searchType === "both") {
+        const videos = enhancedItems.filter((item) => item.isVideo);
+        const images = enhancedItems.filter((item) => !item.isVideo);
+
+        // Balance results between videos and images
+        const mixedResults = [];
+        for (let i = 0; mixedResults.length < count; i++) {
+          if (videos[i]) mixedResults.push(videos[i]);
+          if (images[i]) mixedResults.push(images[i]);
+        }
+        filteredResults = mixedResults.slice(0, count); // Ensure final count matches
+      } else {
+        filteredResults = enhancedItems.slice(0, count); // Fallback for unexpected searchType
+      }
+
       res.json({
         ...data,
-        items: enhancedItems,
+        items: filteredResults,
       });
     } catch (error) {
       console.error("Search error:", error);

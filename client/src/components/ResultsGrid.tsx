@@ -6,8 +6,23 @@ interface Result {
   title: string;
   link: string;
   thumbnailUrl: string;
+  sourceLink: string;
+  downloadLink: string;
+  isVideo: boolean;
   image?: {
-    thumbnailLink: string;
+    thumbnailLink?: string;
+  };
+  pagemap?: {
+    videoobject?: Array<{
+      thumbnailurl?: string;
+      duration?: string;
+    }>;
+    cse_image?: Array<{
+      src: string;
+    }>;
+    cse_thumbnail?: Array<{
+      src: string;
+    }>;
   };
 }
 
